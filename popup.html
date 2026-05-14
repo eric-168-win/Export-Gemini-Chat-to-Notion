@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Gemini to Notion Exporter</title>
+    <style>
+        body {
+            width: 320px;
+            padding: 15px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+        }
+
+        h3 {
+            margin-top: 0;
+            font-size: 16px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        #saveBtn {
+            background-color: #f1f1f1;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        #saveBtn:hover {
+            background-color: #e4e4e4;
+        }
+
+        #exportBtn {
+            background-color: #2eaadc;
+            /* Notion Blue */
+            color: white;
+            font-size: 14px;
+        }
+
+        #exportBtn:hover {
+            background-color: #258fb9;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 12px;
+            text-align: center;
+            min-height: 15px;
+        }
+
+        .success {
+            color: #2e7d32;
+        }
+
+        .error {
+            color: #d32f2f;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h3>⚙️ Notion API 設定</h3>
+    <div class="form-group">
+        <label for="apiKey">Integration Token (API Key)</label>
+        <input type="password" id="apiKey" placeholder="secret_...">
+    </div>
+    <div class="form-group">
+        <label for="dbId">Database ID</label>
+        <input type="text" id="dbId" placeholder="你的資料庫 ID">
+    </div>
+    <button id="saveBtn">儲存設定</button>
+
+    <h3>🚀 匯出操作</h3>
+    <button id="exportBtn">將當前對話匯出至 Notion</button>
+
+    <div id="status"></div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
