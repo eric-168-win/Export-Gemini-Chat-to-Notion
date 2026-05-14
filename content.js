@@ -1,95 +1,6 @@
-
-// function extractGeminiChat() {
-//     // 保留你精準的選擇器
-//     const messageElements = document.querySelectorAll('user-query div[role="heading"].query-text, message-content');
-//     let UserPromptTag = 'div';
-
-//     let chatHistory = [];
-//     const turndownService = new TurndownService({
-//         codeBlockStyle: 'fenced' // 強制使用 ``` 來包裝程式碼，保留語言標籤
-//     });
-
-//     messageElements.forEach((element) => {
-//         const tagName = element.tagName.toLowerCase();
-//         let markdownText = "";
-
-//         if (tagName === UserPromptTag) {
-//             // 🧑 【處理 User 的發言】
-//             // 保留你的清除邏輯
-//             markdownText = element.innerText.trim().replace("You said", "").trim();
-
-//         } else if (tagName === 'message-content') {
-//             // 🤖 【處理 Gemini 的發言】
-//             let contentContainer = element.querySelector('structured-content-container');
-
-//             // 防呆機制
-//             if (!contentContainer) {
-//                 contentContainer = element.querySelector('.markdown-main-panel');
-//             }
-//             console.log("找到對話內容容器：", contentContainer);
-//             if (contentContainer) {
-//                 // 🌟 開始進行「DOM 手術」
-//                 // 複製一個 DOM，避免改動到使用者原本網頁的畫面
-//                 let clone = contentContainer.cloneNode(true);
-
-//                 // 尋找所有的 <pre> 標籤 (程式碼區塊的主體)
-//                 const preTags = clone.querySelectorAll('pre');
-
-//                 preTags.forEach(pre => {
-//                     const wrapper = pre.parentElement;
-//                     let lang = '';
-
-//                     if (wrapper) {
-//                         // 尋找頂部包含語言名稱的 Header (例如 "JSON Copy code")
-//                         const header = wrapper.querySelector('.code-block-header, div[class*="header"]');
-//                         if (header) {
-//                             // 提取語言文字，並移除複製按鈕的字眼
-//                             lang = header.innerText.replace(/Copy code|複製程式碼|Copy/ig, '').trim();
-
-//                             // 🔪 切除 Header！避免它變成 Notion 裡多餘的純文字段落
-//                             header.remove();
-//                         }
-//                     }
-
-//                     // 處理內部的 <code> 標籤
-//                     const codeTag = pre.querySelector('code');
-//                     if (codeTag) {
-//                         // 移植語言標籤給 Turndown 辨識
-//                         if (lang) {
-//                             const cleanLang = lang.split('\n')[0].trim().toLowerCase();
-//                             codeTag.className = `language-${cleanLang}`;
-//                         }
-
-//                         // 🧹 淨化空行：強制移除最前面和最後面的隱藏空白/換行符號
-//                         codeTag.innerHTML = codeTag.innerHTML.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
-//                     }
-//                 });
-
-//                 // 手術完成，將這個乾淨的 clone 交給 Turndown 轉換
-//                 markdownText = turndownService.turndown(clone.innerHTML);
-
-//             } else {
-//                 console.log("警告：在 message-content 找不到對話內容", element);
-//             }
-//         }
-
-//         // 確保不是空字串才塞入陣列
-//         if (markdownText !== "") {
-//             chatHistory.push({
-//                 role: tagName === UserPromptTag ? 'User' : 'Gemini',
-//                 text: markdownText
-//             });
-//         }
-//     });
-
-//     return chatHistory;
-// }
-
-
-// 接收按鈕指令的地方
-
 function extractGeminiChat() {
     const messageElements = document.querySelectorAll('user-query div[role="heading"].query-text, message-content');
+
     let UserPromptTag = 'div';
     let chatHistory = [];
 
@@ -146,6 +57,8 @@ function extractGeminiChat() {
                 contentContainer = element.querySelector('.markdown-main-panel');
             }
 
+            contentContainer = removeExportToSheetsBar(contentContainer);
+
             if (contentContainer) {
                 let clone = contentContainer.cloneNode(true);
 
@@ -191,7 +104,6 @@ function extractGeminiChat() {
                 console.log("警告：在 message-content 找不到對話內容", element);
             }
         }
-
         if (markdownText !== "") {
             chatHistory.push({
                 role: tagName === UserPromptTag ? 'User' : 'Gemini',
@@ -205,8 +117,28 @@ function extractGeminiChat() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "START_EXPORT") {
-        const data = extractGeminiChat(); // 按下按鈕的這瞬間，才執行抓取！
-        sendResponse({ status: "success", data: data });
+        const data = extractGeminiChat();
+
+        // 🌟 新增：精準抓取 Gemini 左上角的對話標題
+        const titleElement = document.querySelector('[data-test-id="conversation-title"]');
+        console.log("抓取到的標題元素：", titleElement.innerText.trim());
+
+        // 如果有抓到標題就用抓到的，沒抓到就用預設的時間戳記當備案
+        const pageTitle = titleElement
+            ? titleElement.innerText.trim()
+            : `Gemini 對話紀錄 - ${new Date().toLocaleString()}`;
+
+        // 將標題 (pageTitle) 一起打包回傳給 popup.js
+        sendResponse({ status: "success", data: data, title: pageTitle });
     }
     return true;
 });
+
+function removeExportToSheetsBar(container) {
+    // You can target it directly from the parent using a nested CSS selector
+    const target = container.querySelector('div.table-footer.hide-from-message-actions');
+    if (target) {
+        target.remove();
+    }
+    return container;
+}

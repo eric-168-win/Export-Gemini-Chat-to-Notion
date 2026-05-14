@@ -1,10 +1,10 @@
 // 監聽來自 Popup 的訊息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "CALL_NOTION_API") {
-        const { chatData, credentials } = request;
+        const { chatData, credentials, title } = request;
 
         // 因為呼叫 API 是非同步的，我們呼叫處理函式，並在完成後 sendResponse
-        sendToNotion(chatData, credentials)
+        sendToNotion(chatData, credentials, title)
             .then(result => sendResponse(result))
             .catch(error => sendResponse({ status: "error", error: error.message }));
 
@@ -13,7 +13,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-async function sendToNotion(chatData, credentials) {
+async function sendToNotion(chatData, credentials, title) {
     const NOTION_API_KEY = credentials.apiKey;
     const DATABASE_ID = credentials.dbId;
     const NOTION_VERSION = '2022-06-28';
@@ -196,12 +196,16 @@ async function sendToNotion(chatData, credentials) {
                 };
                 if (langMap[cleanLang]) notionLang = langMap[cleanLang];
 
+                let cleanCodeStr = codeStr.trimEnd();
+                cleanCodeStr = JSON.parse(JSON.stringify(codeStr.trimEnd()).replace(/\n+$/, ''));
+ 
+
                 // 順便優化：處理 Gemini 產生的超長程式碼 (超過 2000 字依然不斷掉)
                 let codeChunks = [];
-                for (let i = 0; i < codeStr.length; i += 2000) {
+                for (let i = 0; i < cleanCodeStr.length; i += 2000) {
                     codeChunks.push({
                         type: 'text',
-                        text: { content: codeStr.substring(i, i + 2000) }
+                        text: { content: cleanCodeStr.substring(i, i + 2000) }
                     });
                 }
 
@@ -233,6 +237,8 @@ async function sendToNotion(chatData, credentials) {
     const remainingBlocks = notionBlocks.slice(100);
 
     try {
+        const displayTitle = title || `Gemini 對話紀錄 - ${new Date().toLocaleString()}`;
+
         const createResponse = await fetch('https://api.notion.com/v1/pages', {
             method: 'POST',
             headers: {
@@ -244,7 +250,7 @@ async function sendToNotion(chatData, credentials) {
                 parent: { database_id: DATABASE_ID },
                 properties: {
                     Name: {
-                        title: [{ text: { content: `Gemini 對話紀錄 - ${new Date().toLocaleString()}` } }]
+                        title: [{ text: { content: displayTitle } }]
                     }
                 },
                 children: initialBlocks
@@ -298,51 +304,108 @@ async function appendBlocksInChunks(pageId, blocks, apiKey, version) {
  * 將簡單的 Markdown 格式轉換為 Notion 的 rich_text 陣列
  * 支援：**粗體**, *斜體*, `行內程式碼`, [連結](url)
  */
+// function markdownToRichText(text) {
+//     const richText = [];
+//     // 正規表達式：匹配 粗體、斜體、行內程式碼、連結
+//     const regex = /(\*\*\*[\s\S]+?\*\*\*|\*\*[\s\S]+?\*\*|\*[\s\S]+?\*|`[\s\S]+?`|\[[\s\S]+?\]\(.+?\))/g;
+
+//     let lastIndex = 0;
+//     let match;
+
+//     while ((match = regex.exec(text)) !== null) {
+//         // 先放入匹配項之前的純文字
+//         if (match.index > lastIndex) {
+//             richText.push({
+//                 type: 'text',
+//                 text: { content: text.substring(lastIndex, match.index) }
+//             });
+//         }
+
+//         const part = match[0];
+//         if (part.startsWith('***')) { // 粗斜體
+//             richText.push({ type: 'text', text: { content: part.slice(3, -3) }, annotations: { bold: true, italic: true } });
+//         } else if (part.startsWith('**')) { // 粗體
+//             richText.push({ type: 'text', text: { content: part.slice(2, -2) }, annotations: { bold: true } });
+//         } else if (part.startsWith('*')) { // 斜體
+//             richText.push({ type: 'text', text: { content: part.slice(1, -1) }, annotations: { italic: true } });
+//         } else if (part.startsWith('`')) { // 行內程式碼
+//             richText.push({ type: 'text', text: { content: part.slice(1, -1) }, annotations: { code: true } });
+//         } else if (part.startsWith('[')) { // 連結
+//             const linkMatch = part.match(/\[([\s\S]+?)\]\((.+?)\)/);
+//             if (linkMatch) {
+//                 richText.push({
+//                     type: 'text',
+//                     text: { content: linkMatch[1], link: { url: linkMatch[2] } }
+//                 });
+//             }
+//         }
+//         lastIndex = regex.lastIndex;
+//     }
+
+//     // 放入剩餘的文字
+//     if (lastIndex < text.length) {
+//         richText.push({
+//             type: 'text',
+//             text: { content: text.substring(lastIndex) }
+//         });
+//     }
+
+//     return richText.length > 0 ? richText : [{ type: 'text', text: { content: text } }];
+// }
+/**
+ * 將簡單的 Markdown 格式轉換為 Notion 的 rich_text 陣列
+ * 🌟 強化版：支援巢狀格式 (例如：粗體裡面包著行內程式碼)
+ */
 function markdownToRichText(text) {
-    const richText = [];
-    // 正規表達式：匹配 粗體、斜體、行內程式碼、連結
-    const regex = /(\*\*\*[\s\S]+?\*\*\*|\*\*[\s\S]+?\*\*|\*[\s\S]+?\*|`[\s\S]+?`|\[[\s\S]+?\]\(.+?\))/g;
+    function parse(textStr, currentAnnotations) {
+        const richTextList = [];
+        const regex = /(\*\*\*[\s\S]+?\*\*\*|\*\*[\s\S]+?\*\*|\*[\s\S]+?\*|`[\s\S]+?`|\[[\s\S]+?\]\(.+?\))/g;
+        let lastIndex = 0;
+        let match;
 
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-        // 先放入匹配項之前的純文字
-        if (match.index > lastIndex) {
-            richText.push({
-                type: 'text',
-                text: { content: text.substring(lastIndex, match.index) }
-            });
-        }
-
-        const part = match[0];
-        if (part.startsWith('***')) { // 粗斜體
-            richText.push({ type: 'text', text: { content: part.slice(3, -3) }, annotations: { bold: true, italic: true } });
-        } else if (part.startsWith('**')) { // 粗體
-            richText.push({ type: 'text', text: { content: part.slice(2, -2) }, annotations: { bold: true } });
-        } else if (part.startsWith('*')) { // 斜體
-            richText.push({ type: 'text', text: { content: part.slice(1, -1) }, annotations: { italic: true } });
-        } else if (part.startsWith('`')) { // 行內程式碼
-            richText.push({ type: 'text', text: { content: part.slice(1, -1) }, annotations: { code: true } });
-        } else if (part.startsWith('[')) { // 連結
-            const linkMatch = part.match(/\[([\s\S]+?)\]\((.+?)\)/);
-            if (linkMatch) {
-                richText.push({
-                    type: 'text',
-                    text: { content: linkMatch[1], link: { url: linkMatch[2] } }
-                });
+        while ((match = regex.exec(textStr)) !== null) {
+            // 處理標記符號前面的純文字
+            if (match.index > lastIndex) {
+                const content = textStr.substring(lastIndex, match.index);
+                const block = { type: 'text', text: { content: content } };
+                if (Object.keys(currentAnnotations).length > 0) block.annotations = currentAnnotations;
+                richTextList.push(block);
             }
+
+            const part = match[0];
+            // 🌟 核心修改：遇到粗體或斜體時，把裡面的文字「再次丟入 parse 函式」進行遞迴檢查！
+            if (part.startsWith('***')) {
+                richTextList.push(...parse(part.slice(3, -3), { ...currentAnnotations, bold: true, italic: true }));
+            } else if (part.startsWith('**')) {
+                richTextList.push(...parse(part.slice(2, -2), { ...currentAnnotations, bold: true }));
+            } else if (part.startsWith('*')) {
+                richTextList.push(...parse(part.slice(1, -1), { ...currentAnnotations, italic: true }));
+            } else if (part.startsWith('`')) {
+                // 程式碼是最底層，直接輸出
+                const block = { type: 'text', text: { content: part.slice(1, -1) }, annotations: { ...currentAnnotations, code: true } };
+                richTextList.push(block);
+            } else if (part.startsWith('[')) {
+                // 連結處理
+                const linkMatch = part.match(/\[([\s\S]+?)\]\((.+?)\)/);
+                if (linkMatch) {
+                    const block = { type: 'text', text: { content: linkMatch[1], link: { url: linkMatch[2] } } };
+                    if (Object.keys(currentAnnotations).length > 0) block.annotations = currentAnnotations;
+                    richTextList.push(block);
+                }
+            }
+            lastIndex = regex.lastIndex;
         }
-        lastIndex = regex.lastIndex;
+
+        // 處理最後剩下的字串
+        if (lastIndex < textStr.length) {
+            const content = textStr.substring(lastIndex);
+            const block = { type: 'text', text: { content: content } };
+            if (Object.keys(currentAnnotations).length > 0) block.annotations = currentAnnotations;
+            richTextList.push(block);
+        }
+        return richTextList;
     }
 
-    // 放入剩餘的文字
-    if (lastIndex < text.length) {
-        richText.push({
-            type: 'text',
-            text: { content: text.substring(lastIndex) }
-        });
-    }
-
-    return richText.length > 0 ? richText : [{ type: 'text', text: { content: text } }];
+    // 啟動第一層解析
+    return parse(text, {});
 }

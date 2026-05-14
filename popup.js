@@ -65,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     chrome.runtime.sendMessage({
                         action: "CALL_NOTION_API",
                         chatData: response.data,
+                        title: response.title,
                         credentials: { apiKey, dbId } // 一併傳遞設定檔
                     }, (bgResponse) => {
                         if (bgResponse.status === "success") {
